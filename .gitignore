@@ -1,7 +1,7 @@
 # Ignorer l'environnement virtuel Python
 myenv/
 
-# Ignorer l'environnement virtuel Python
+# Ignorer les sorties
 signaux_routiers.csv
 
 # Ignorer le dossier des images téléchargées

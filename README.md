@@ -11,15 +11,21 @@ Ce script permet d'extraire des données de signalisation routière du ministèr
 - **Robustesse accrue** : Chaque champ est vérifié avant extraction pour éviter les erreurs.
 
 ## Fonctionnalités
+- **Gestion de plage de numéros (CID) personnalisable**
+- **Limitation de vitesse pour respecter les serveurs**
+- **Scraping de données structurées** : Numéro, nom, dimensions, couleurs, usages, etc.
+- **Téléchargement automatisé des images** : Les images sont sauvegardées dans un dossier dédié.
+- **Gestion des doublons** : Utilisation d'un fichier `cid.csv` pour éviter de rescaper les mêmes données.
+- **Modes d'exécution flexibles** :
+  - **`full`** : Traite tous les CID dans la plage spécifiée.
+  - **`minimal`** : Ignore les CID déjà traités (par défaut).
+  - **`partial`** : Ignore uniquement les CID sans image.
+- **Fichier d'historique** : Enregistre les détails des exécutions précédentes (date, heure, mode).
 
-- Scraping de données structurées (numéro, nom, dimensions, couleurs, etc.)
-- Téléchargement automatisé des images des panneaux
-- Gestion de plage de numéros (CID) personnalisable
-- Limitation de vitesse pour respecter les serveurs
-- Export CSV structuré avec prise en charge des données existantes
+## Prérequis
+- Python 3.8 ou supérieur
+- Bibliothèques Python : `requests`, `beautifulsoup4`, `pandas`, `tqdm`
 
-## Installation
-
+Installez les dépendances avec :
 ```bash
 pip install -r requirements.txt
-```
