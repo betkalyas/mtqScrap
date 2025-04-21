@@ -1,0 +1,27 @@
+# Ignorer l'environnement virtuel Python
+myenv/
+
+# Ignorer l'environnement virtuel Python
+signaux_routiers.csv
+
+# Ignorer le dossier des images téléchargées
+images_signaux/
+
+# Ignorer les fichiers temporaires et de cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignorer les fichiers binaires ou temporaires
+*.log
+*.tmp
+*.bak
+
+# Ignorer les fichiers spécifiques au système d'exploitation
+.DS_Store
+Thumbs.db
+
+# Ignorer les fichiers de configuration locaux
+.env
+.local
