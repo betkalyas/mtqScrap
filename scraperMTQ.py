@@ -17,14 +17,14 @@ HISTORY_FILE = "historique.log"
 # Créer les dossiers nécessaires
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
-
-def log_execution(mode):
+def log_execution(mode, cid_start, cid_end, updated_count, exit_type):
     """
     Enregistre les détails de l'exécution dans un fichier d'historique.
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(HISTORY_FILE, "a") as f:
-        f.write(f"{timestamp} - Mode: {mode}\n")
+        f.write(f"{timestamp} - Mode: {mode}, CID Start: {cid_start}, CID End: {cid_end}, "
+                f"Updated Records: {updated_count}, Exit Type: {exit_type}\n")
 
 
 def load_cid_data():
@@ -72,8 +72,11 @@ def check_image(cid):
     Vérifie si un CID a une image.
     """
     url = f"{BASE_URL}?cid={cid}"
-    response = requests.get(url)
-    if response.status_code != 200:
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            return False
+    except requests.RequestException:
         return False
 
     soup = BeautifulSoup(response.content, 'html.parser')
@@ -88,132 +91,155 @@ def scraper(cid_start, cid_end, mode="minimal"):
     - "minimal" : Ignore les CID déjà dans cid.csv (par défaut).
     - "partial" : Ignore seulement les CID sans image.
     """
-    # Charger les CID existants
-    cid_df = load_cid_data()
-    existing_cids = set(cid_df["cid"]) if not cid_df.empty else set()
-    data_list = []
+    exit_type = "normal"  # Type de fermeture initial
+    updated_count = 0  # Compteur des champs mis à jour
 
-    # Charger les données existantes de signalisation routière
-    existing_signal_data = load_signal_data()
+    try:
+        # Charger les CID existants
+        cid_df = load_cid_data()
+        existing_cids = set(cid_df["cid"]) if not cid_df.empty else set()
+        data_list = []
 
-    for cid in tqdm(range(cid_start, cid_end + 1), desc=f"Mode {mode}"):
-        # Mode minimal : Ignorer les CID déjà dans cid.csv
-        if mode == "minimal" and cid in existing_cids:
-            print(f"CID {cid} déjà traité. Passage au suivant.")
-            continue
+        # Charger les données existantes de signalisation routière
+        existing_signal_data = load_signal_data()
 
-        # Mode partiel : Ignorer les CID sans image
-        if mode == "partial":
-            if cid in existing_cids and cid_df.loc[cid_df["cid"] == cid, "has_image"].values[0] == False:
-                print(f"CID {cid} sans image. Passage au suivant.")
+        for cid in tqdm(range(cid_start, cid_end + 1), desc=f"Mode {mode}"):
+            # Mode minimal : Ignorer les CID déjà dans cid.csv
+            if mode == "minimal" and cid in existing_cids:
+                print(f"CID {cid} déjà traité. Passage au suivant.")
                 continue
 
-        # Vérifier l'existence de l'image
-        has_image = check_image(cid)
-        if not has_image:
-            print(f"Pas d'image trouvée pour CID {cid}. Ajout à cid.csv.")
-            cid_df = pd.concat([cid_df, pd.DataFrame(
-                {"cid": [cid], "has_image": [False]})], ignore_index=True)
-            save_cid_data(cid_df)
-            continue
+            # Mode partiel : Ignorer les CID sans image
+            if mode == "partial":
+                if cid in existing_cids and cid_df.loc[cid_df["cid"] == cid, "has_image"].values[0] == False:
+                    print(f"CID {cid} sans image. Passage au suivant.")
+                    continue
 
-        # Télécharger la page et extraire les données
-        url = f"{BASE_URL}?cid={cid}"
-        response = requests.get(url)
-        if response.status_code != 200:
-            print(f"Erreur {response.status_code} pour CID {cid}")
-            continue
+            # Vérifier l'existence de l'image
+            has_image = check_image(cid)
+            if not has_image:
+                print(f"Pas d'image trouvée pour CID {cid}. Ajout à cid.csv.")
+                cid_df = pd.concat([cid_df, pd.DataFrame(
+                    {"cid": [cid], "has_image": [False]})], ignore_index=True)
+                save_cid_data(cid_df)
+                continue
 
-        soup = BeautifulSoup(response.content, 'html.parser')
+            # Télécharger la page et extraire les données
+            url = f"{BASE_URL}?cid={cid}"
+            try:
+                response = requests.get(url, timeout=10)
+                if response.status_code != 200:
+                    print(f"Erreur {response.status_code} pour CID {cid}")
+                    continue
+            except requests.RequestException:
+                print(f"Erreur de connexion pour CID {cid}")
+                continue
 
-        # Initialiser un dictionnaire pour stocker les données
-        data = {"cid": cid}
+            soup = BeautifulSoup(response.content, 'html.parser')
 
-        try:
-            # Extraire les données avec vérification de l'existence des champs
-            data["Numero"] = soup.find(
-                "span", id="ctl00_cphContenu_FicheDetails_txtNumero").text.strip().replace("\n", " ").replace("\r", "") \
-                if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtNumero") else "N/A"
+            # Initialiser un dictionnaire pour stocker les données
+            data = {"cid": cid}
 
-            data["Nom"] = soup.find("span", id="ctl00_cphContenu_FicheDetails_txtNom").text.strip().replace("\n", " ").replace("\r", "") \
-                if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtNom") else "N/A"
+            try:
+                # Extraire les données avec vérification de l'existence des champs
+                data["Numero"] = soup.find(
+                    "span", id="ctl00_cphContenu_FicheDetails_txtNumero").text.strip().replace("\n", " ").replace("\r", "") \
+                    if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtNumero") else "N/A"
 
-            # Gestion des références (Tome V ou VHR)
-            reference_tome_v = soup.find(
-                "span", id="ctl00_cphContenu_FicheDetails_txtReferenceTomeV")
-            reference_vhr = soup.find(
-                "span", id="ctl00_cphContenu_FicheDetails_txtReferenceVHR")
-            data["Reference_Tome_V"] = reference_tome_v.text.strip().replace(
-                "\n", " ").replace("\r", "") if reference_tome_v else "N/A"
-            data["Reference_VHR"] = reference_vhr.text.strip(
-            ) if reference_vhr else "N/A"
+                data["Nom"] = soup.find("span", id="ctl00_cphContenu_FicheDetails_txtNom").text.strip().replace("\n", " ").replace("\r", "") \
+                    if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtNom") else "N/A"
 
-            data["Description"] = soup.find(
-                "span", id="ctl00_cphContenu_FicheDetails_txtDescription").text.strip().replace("\n", " ").replace("\r", "") \
-                if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtDescription") else "N/A"
+                # Gestion des références (Tome V ou VHR)
+                reference_tome_v = soup.find(
+                    "span", id="ctl00_cphContenu_FicheDetails_txtReferenceTomeV")
+                reference_vhr = soup.find(
+                    "span", id="ctl00_cphContenu_FicheDetails_txtReferenceVHR")
+                data["Reference_Tome_V"] = reference_tome_v.text.strip().replace(
+                    "\n", " ").replace("\r", "") if reference_tome_v else "N/A"
+                data["Reference_VHR"] = reference_vhr.text.strip(
+                ) if reference_vhr else "N/A"
 
-            data["Usages"] = soup.find(
-                "span", id="ctl00_cphContenu_FicheDetails_txtUsage").text.strip().replace("\n", " ").replace("\r", "") \
-                if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtUsage") else "N/A"
+                data["Description"] = soup.find(
+                    "span", id="ctl00_cphContenu_FicheDetails_txtDescription").text.strip().replace("\n", " ").replace("\r", "") \
+                    if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtDescription") else "N/A"
 
-            data["Couleur"] = soup.find(
-                "span", id="ctl00_cphContenu_FicheDetails_txtCouleur").text.strip().replace("\n", " ").replace("\r", "") \
-                if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtCouleur") else "N/A"
+                data["Usages"] = soup.find(
+                    "span", id="ctl00_cphContenu_FicheDetails_txtUsage").text.strip().replace("\n", " ").replace("\r", "") \
+                    if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtUsage") else "N/A"
 
-            data["Type_Pellicule"] = soup.find(
-                "span", id="ctl00_cphContenu_FicheDetails_txtTypePellicule").text.strip().replace("\n", " ").replace("\r", "") \
-                if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtTypePellicule") else "N/A"
+                data["Couleur"] = soup.find(
+                    "span", id="ctl00_cphContenu_FicheDetails_txtCouleur").text.strip().replace("\n", " ").replace("\r", "") \
+                    if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtCouleur") else "N/A"
 
-            # Extraire les dimensions
-            dimensions = []
-            table = soup.find("table", {
-                              "summary": "Dimensions disponibles en milimètres pour ce dispositif suivi du code IMP correspondant."})
-            if table:
-                for row in table.find_all("tr", class_=["gris", ""])[1:]:
-                    cols = row.find_all("td")
-                    dimensions.append({
-                        "Dimensions_mm": cols[0].text.strip(),
-                        "Code_IMP": cols[1].text.strip()
-                    })
-            data["Dimensions"] = str(dimensions) if dimensions else "N/A"
+                data["Type_Pellicule"] = soup.find(
+                    "span", id="ctl00_cphContenu_FicheDetails_txtTypePellicule").text.strip().replace("\n", " ").replace("\r", "") \
+                    if soup.find("span", id="ctl00_cphContenu_FicheDetails_txtTypePellicule") else "N/A"
 
-            # Télécharger l'image
-            img_url = soup.find("div", id="Image220Centrer").find("img")["src"]
-            img_url = urljoin(BASE_URL, img_url)
-            img_response = requests.get(img_url)
-            if img_response.status_code == 200:
-                img_filename = os.path.join(
-                    IMAGE_DIR, f"{data['Numero']}-{data['cid']}.png")
-                with open(img_filename, "wb") as f:
-                    f.write(img_response.content)
+                # Extraire les dimensions
+                dimensions = []
+                table = soup.find("table", {
+                                  "summary": "Dimensions disponibles en milimètres pour ce dispositif suivi du code IMP correspondant."})
+                if table:
+                    for row in table.find_all("tr", class_=["gris", ""])[1:]:
+                        cols = row.find_all("td")
+                        dimensions.append({
+                            "Dimensions_mm": cols[0].text.strip(),
+                            "Code_IMP": cols[1].text.strip()
+                        })
+                data["Dimensions"] = str(dimensions) if dimensions else "N/A"
 
-            # Ajouter le CID à cid.csv avec has_image=True
-            cid_df = pd.concat([cid_df, pd.DataFrame(
-                {"cid": [cid], "has_image": [True]})], ignore_index=True)
-            save_cid_data(cid_df)
+                # Télécharger l'image
+                img_url = soup.find("div", id="Image220Centrer").find("img")["src"]
+                img_url = urljoin(BASE_URL, img_url)
+                img_response = requests.get(img_url, timeout=10)
+                if img_response.status_code == 200:
+                    img_filename = os.path.join(
+                        IMAGE_DIR, f"{data['Numero']}-{data['cid']}.png")
+                    with open(img_filename, "wb") as f:
+                        f.write(img_response.content)
 
-            data_list.append(data)
-            time.sleep(0.25)  # Respecter les serveurs
+                # Ajouter le CID à cid.csv avec has_image=True
+                cid_df = pd.concat([cid_df, pd.DataFrame(
+                    {"cid": [cid], "has_image": [True]})], ignore_index=True)
+                save_cid_data(cid_df)
 
-        except Exception as e:
-            print(f"Erreur lors du traitement de CID {cid}: {e}")
-            continue
+                data_list.append(data)
+                updated_count += 1
+                time.sleep(0.25)  # Respecter les serveurs
 
-    # Mettre à jour les données existantes
-    if data_list:
-        updated_signal_data = update_signal_data(
-            existing_signal_data, data_list)
-        updated_signal_data.to_csv(CSV_FILE, index=False)
-        print(f"Les données ont été mises à jour dans {CSV_FILE}")
+            except Exception as e:
+                print(f"Erreur lors du traitement de CID {cid}: {e}")
+                continue
 
-    # Enregistrer l'exécution dans l'historique
-    log_execution(mode)
+        # Mettre à jour les données existantes
+        if data_list:
+            updated_signal_data = update_signal_data(
+                existing_signal_data, data_list)
+            updated_signal_data.to_csv(CSV_FILE, index=False)
+            print(f"Les données ont été mises à jour dans {CSV_FILE}")
+
+    except KeyboardInterrupt:
+        exit_type = "interruption keyboard"
+        print("\nInterruption manuelle détectée. Sauvegarde des données partielles...")
+    except Exception as e:
+        exit_type = "crash"
+        print(f"\nErreur inattendue : {e}. Sauvegarde des données partielles...")
+    finally:
+        # Sauvegarder les données partielles si nécessaire
+        if data_list:
+            updated_signal_data = update_signal_data(
+                existing_signal_data, data_list)
+            updated_signal_data.to_csv(CSV_FILE, index=False)
+            print(f"Données partielles sauvegardées dans {CSV_FILE}")
+
+        # Enregistrer l'exécution dans l'historique
+        log_execution(mode, cid_start, cid_end, updated_count, exit_type)
 
 
 if __name__ == "__main__":
     # Paramètres modifiables
-    CID_START = 13130  # Modifier ici
-    CID_END = 13200    # Modifier ici
+    CID_START = 10000  # Modifier ici
+    CID_END = 11111    # Modifier ici
     MODE = "minimal"   # Options : "full", "minimal", "partial"
 
     scraper(CID_START, CID_END, mode=MODE)
